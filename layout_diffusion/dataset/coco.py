@@ -30,10 +30,10 @@ from layout_diffusion.dataset.augmentations import RandomSampleCrop, RandomMirro
 
 class CocoSceneGraphDataset(Dataset):
     def __init__(self, image_dir, instances_json, stuff_json=None,
-                 stuff_only=True, image_size=(64, 64), mask_size=16,
+                 stuff_only=False, image_size=(64, 64), mask_size=16,
                  max_num_samples=None,
-                 include_relationships=True, min_object_size=0.02,
-                 min_objects_per_image=3, max_objects_per_image=8, left_right_flip=False,
+                 include_relationships=True, min_object_size=0.002,
+                 min_objects_per_image=0, max_objects_per_image=20, left_right_flip=False,
                  include_other=False, instance_whitelist=None, stuff_whitelist=None, mode='train',
                  use_deprecated_stuff2017=False, deprecated_coco_stuff_ids_txt='', filter_mode='LostGAN',
                  use_MinIoURandomCrop=False,
@@ -211,13 +211,16 @@ class CocoSceneGraphDataset(Dataset):
                     self.image_id_to_objects.pop(image_id, None)
 
         # COCO category labels start at 1, so use 0 for __image__
-        self.vocab['object_name_to_idx']['__image__'] = 0
+        self.vocab['object_name_to_idx']['__image__'] = 17
 
-        # None for 184
-        self.vocab['object_name_to_idx']['__null__'] = 184
+        # # None for 184
+        self.vocab['object_name_to_idx']['__null__'] = 18
 
         # Build object_idx_to_name
         name_to_idx = self.vocab['object_name_to_idx']
+        print(name_to_idx)
+        print('--------------------------------------')
+        print(set(name_to_idx.values()))
         assert len(name_to_idx) == len(set(name_to_idx.values()))
         max_object_idx = max(name_to_idx.values())
         idx_to_name = ['__null__'] * (1 + max_object_idx)
@@ -468,21 +471,51 @@ def build_coco_dsets(cfg, mode='train'):
     dataset = CocoSceneGraphDataset(
         mode=mode,
         filter_mode=params.filter_mode,
-        stuff_only=params.stuff_only,
+        # stuff_only=params.stuff_only,
         image_size=(params.image_size, params.image_size),
         mask_size=params.mask_size_for_layout_object,
         min_object_size=params.min_object_size,
         min_objects_per_image=params.min_objects_per_image,
         max_objects_per_image=params.max_objects_per_image,
         instance_whitelist=params.instance_whitelist,
-        stuff_whitelist=params.stuff_whitelist,
+        # stuff_whitelist=params.stuff_whitelist,
         include_other=params.include_other,
         include_relationships=params.include_relationships,
-        use_deprecated_stuff2017=params.use_deprecated_stuff2017,
-        deprecated_coco_stuff_ids_txt=os.path.join(params.root_dir, params[mode].deprecated_stuff_ids_txt),
+        # use_deprecated_stuff2017=params.use_deprecated_stuff2017,
+        # deprecated_coco_stuff_ids_txt=os.path.join(params.root_dir, params[mode].deprecated_stuff_ids_txt),
         image_dir=os.path.join(params.root_dir, params[mode].image_dir),
         instances_json=os.path.join(params.root_dir, params[mode].instances_json),
-        stuff_json=os.path.join(params.root_dir, params[mode].stuff_json),
+        # stuff_json=os.path.join(params.root_dir, params[mode].stuff_json),
+        max_num_samples=params[mode].max_num_samples,
+        left_right_flip=params[mode].left_right_flip,
+        use_MinIoURandomCrop=params[mode].use_MinIoURandomCrop,
+        return_origin_image=params.return_origin_image,
+        specific_image_ids=params[mode].specific_image_ids
+    )
+
+    num_objs = dataset.total_objects()
+    num_imgs = len(dataset)
+    print('%s dataset has %d images and %d objects' % (mode, num_imgs, num_objs))
+    print('(%.2f objects per image)' % (float(num_objs) / num_imgs))
+
+    return dataset
+
+def build_coco_dsets_no_stuff(cfg, mode='train'):
+    assert mode in ['train', 'val', 'test']
+    params = cfg.data.parameters
+    dataset = CocoSceneGraphDataset(
+        mode=mode,
+        filter_mode=params.filter_mode,
+        image_size=(params.image_size, params.image_size),
+        mask_size=params.mask_size_for_layout_object,
+        min_object_size=params.min_object_size,
+        min_objects_per_image=params.min_objects_per_image,
+        max_objects_per_image=params.max_objects_per_image,
+        instance_whitelist=params.instance_whitelist,
+        include_other=params.include_other,
+        include_relationships=params.include_relationships,
+        image_dir=os.path.join(params.root_dir, params[mode].image_dir),
+        instances_json=os.path.join(params.root_dir, params[mode].instances_json),
         max_num_samples=params[mode].max_num_samples,
         left_right_flip=params[mode].left_right_flip,
         use_MinIoURandomCrop=params[mode].use_MinIoURandomCrop,

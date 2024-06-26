@@ -226,6 +226,7 @@ class LayoutTransformerEncoder(nn.Module):
 
         if 'obj_bbox' in self.used_condition_types:
             obj_bbox_embedding = self.obj_bbox_embedding(obj_bbox.to(self.dtype))
+            # print("Object bounding box embedding type: ", obj_bbox_embedding.dtype)
             if xf_in is None:
                 xf_in = obj_bbox_embedding
             else:

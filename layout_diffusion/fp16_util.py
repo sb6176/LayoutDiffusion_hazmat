@@ -98,7 +98,10 @@ def get_param_groups_and_shapes(named_model_params):
         [(n, p) for (n, p) in named_model_params if p.ndim > 1],
         (1, -1),
     )
-    return [scalar_vector_named_params, matrix_named_params]
+    if len(scalar_vector_named_params[0]) == 0:
+        return [matrix_named_params]
+    else:
+        return [scalar_vector_named_params, matrix_named_params]
 
 
 def master_params_to_state_dict(
@@ -186,7 +189,7 @@ class MixedPrecisionTrainer:
                     self.model.named_parameters()
                 )
             self.master_params = make_master_params(self.param_groups_and_shapes)
-            self.model.convert_to_fp16()
+            self.model.base_model.convert_to_fp16()
 
     def get_named_parameters_that_require_grad(self):
         named_parameters_that_require_grad = []
