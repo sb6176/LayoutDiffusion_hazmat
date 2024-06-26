@@ -22,7 +22,7 @@ def get_demo(layout_to_image_generation_fn, cfg, model_fn, noise_schedule):
         print(custom_layout_dataframe)
         for obj_id in range(len(custom_layout_dataframe)):
             obj_class = custom_layout_dataframe['obj_class'][obj_id]
-            if obj_class == 'pad':
+            if obj_class == '' or obj_class == 'pad':
                 continue
 
             color = colors[obj_id]

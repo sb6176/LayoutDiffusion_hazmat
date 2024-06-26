@@ -12,7 +12,7 @@ import torch.distributed as dist
 
 # Change this to reflect your cluster layout.
 # The GPU for a given rank is (rank % GPUS_PER_NODE).
-GPUS_PER_NODE = 8
+GPUS_PER_NODE = 1
 
 SETUP_RETRY_COUNT = 3
 
@@ -24,7 +24,7 @@ def setup_dist(local_rank=0):
 
     th.cuda.set_device(local_rank)
     os.environ["CUDA_VISIBLE_DEVICES"] = f"{local_rank}"
-    dist.init_process_group(backend='nccl', init_method="env://")
+    dist.init_process_group(backend='gloo', init_method="env://")
 
 
 def dev():

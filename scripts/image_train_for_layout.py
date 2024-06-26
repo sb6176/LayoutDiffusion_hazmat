@@ -15,10 +15,6 @@ from layout_diffusion.resample import build_schedule_sampler
 from layout_diffusion.dataset.data_loader import build_loaders
 from layout_diffusion.respace import build_diffusion
 
-
-
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--local_rank", type=int, default=0)
@@ -39,7 +35,6 @@ def main():
     logger.log("creating model...")
     model = build_model(cfg)
     model.to(dist_util.dev())
-    print(model)
 
     logger.log("creating diffusion...")
     diffusion = build_diffusion(cfg)

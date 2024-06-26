@@ -17,23 +17,101 @@ from layout_diffusion.dataset.data_loader import build_loaders
 from scripts.get_gradio_demo import get_demo
 from layout_diffusion.dataset.util import image_unnormalize_batch
 import numpy as np
+from peft import PeftModel, PeftConfig
 
-object_name_to_idx = {'person': 1, 'bicycle': 2, 'car': 3, 'motorcycle': 4, 'airplane': 5, 'bus': 6, 'train': 7, 'truck': 8, 'boat': 9, 'traffic light': 10, 'fire hydrant': 11, 'stop sign': 13, 'parking meter': 14,
-        'bench': 15, 'bird': 16, 'cat': 17, 'dog': 18, 'horse': 19, 'sheep': 20, 'cow': 21, 'elephant': 22, 'bear': 23, 'zebra': 24, 'giraffe': 25, 'backpack': 27, 'umbrella': 28, 'handbag': 31,
-        'tie': 32, 'suitcase': 33, 'frisbee': 34, 'skis': 35, 'snowboard': 36, 'sports ball': 37, 'kite': 38, 'baseball bat': 39, 'baseball glove': 40, 'skateboard': 41, 'surfboard': 42,
-        'tennis racket': 43, 'bottle': 44, 'wine glass': 46, 'cup': 47, 'fork': 48, 'knife': 49, 'spoon': 50, 'bowl': 51, 'banana': 52, 'apple': 53, 'sandwich': 54, 'orange': 55, 'broccoli': 56,
-        'carrot': 57, 'hot dog': 58, 'pizza': 59, 'donut': 60, 'cake': 61, 'chair': 62, 'couch': 63, 'potted plant': 64, 'bed': 65, 'dining table': 67, 'toilet': 70, 'tv': 72, 'laptop': 73,
-        'mouse': 74, 'remote': 75, 'keyboard': 76, 'cell phone': 77, 'microwave': 78, 'oven': 79, 'toaster': 80, 'sink': 81, 'refrigerator': 82, 'book': 84, 'clock': 85, 'vase': 86, 'scissors': 87,
-        'teddy bear': 88, 'hair drier': 89, 'toothbrush': 90, 'banner': 92, 'blanket': 93, 'branch': 94, 'bridge': 95, 'building-other': 96, 'bush': 97, 'cabinet': 98, 'cage': 99, 'cardboard': 100,
-        'carpet': 101, 'ceiling-other': 102, 'ceiling-tile': 103, 'cloth': 104, 'clothes': 105, 'clouds': 106, 'counter': 107, 'cupboard': 108, 'curtain': 109, 'desk-stuff': 110, 'dirt': 111,
-        'door-stuff': 112, 'fence': 113, 'floor-marble': 114, 'floor-other': 115, 'floor-stone': 116, 'floor-tile': 117, 'floor-wood': 118, 'flower': 119, 'fog': 120, 'food-other': 121, 'fruit': 122,
-        'furniture-other': 123, 'grass': 124, 'gravel': 125, 'ground-other': 126, 'hill': 127, 'house': 128, 'leaves': 129, 'light': 130, 'mat': 131, 'metal': 132, 'mirror-stuff': 133, 'moss': 134,
-        'mountain': 135, 'mud': 136, 'napkin': 137, 'net': 138, 'paper': 139, 'pavement': 140, 'pillow': 141, 'plant-other': 142, 'plastic': 143, 'platform': 144, 'playingfield': 145, 'railing': 146,
-        'railroad': 147, 'river': 148, 'road': 149, 'rock': 150, 'roof': 151, 'rug': 152, 'salad': 153, 'sand': 154, 'sea': 155, 'shelf': 156, 'sky-other': 157, 'skyscraper': 158, 'snow': 159,
-        'solid-other': 160, 'stairs': 161, 'stone': 162, 'straw': 163, 'structural-other': 164, 'table': 165, 'tent': 166, 'textile-other': 167, 'towel': 168, 'tree': 169, 'vegetable': 170,
-        'wall-brick': 171, 'wall-concrete': 172, 'wall-other': 173, 'wall-panel': 174, 'wall-stone': 175, 'wall-tile': 176, 'wall-wood': 177, 'water-other': 178, 'waterdrops': 179,
-        'window-blind': 180, 'window-other': 181, 'wood': 182, 'other': 183, '__image__': 0, '__null__': 184}
+import hashlib
 
+object_name_to_idx = {'inhalation-hazard': 0, 'poison': 1, 'flammable': 2, 'radioactive': 3, 'oxidizer': 4, 'explosive': 5, 'corrosive': 6, 'flammable-solid': 7, 'spontaneously-combustible': 8, 'oxygen': 9, 'dangerous': 10, 'infectious-substance': 11, 'marine-toxicity': 12, 'organic-peroxide': 13, 'miscellaneous-materials': 14, 'batteries': 15, 'non-flammable-gas': 16, '__image__': 17, '__null__': 18}
+
+# Function to log incompatible keys
+def log_incompatible_keys(missing_keys, unexpected_keys, size_mismatched_keys):
+    if missing_keys:
+        print(f"Missing keys: {len(missing_keys)}")
+        for key in missing_keys:
+            print(f"  - {key}")
+    if unexpected_keys:
+        print(f"Unexpected keys: {len(unexpected_keys)}")
+        for key in unexpected_keys:
+            print(f"  - {key}")
+    if size_mismatched_keys:
+        print(f"Size mismatched keys: {len(size_mismatched_keys)}")
+        for key, expected_shape, loaded_shape in size_mismatched_keys:
+            print(f"  - {key}: expected {expected_shape}, but got {loaded_shape}")
+
+def preprocess_state_dict(state_dict):
+    new_state_dict = {}
+
+    # Substrings to remove from layer keys
+    substrings_to_remove = ["base_model", "model", "base_layer"]
+
+    # Terms to filter out
+    terms_to_filter_out = ["lora_A", "lora_B", "lora_embedding_A", "lora_embedding_B"]
+    
+    for key, value in state_dict.items():
+        # Remove specific substrings
+        new_key = key
+        for substr in substrings_to_remove:
+            new_key = new_key.replace(f"{substr}.", "")  # Removing the substring and dot
+            new_key = new_key.replace(f"{substr}_", "")  # Removing the substring and underscore
+        
+        # Skip layers containing specific terms
+        if any(term in new_key for term in terms_to_filter_out):
+            continue
+
+        new_state_dict[new_key] = value
+
+    return new_state_dict
+
+# Custom function to load compatible parts of the pretrained model
+def load_compatible_model(model, pretrained_path):
+    pretrained_dict = torch.load(pretrained_path, map_location='cpu')
+    model_dict = model.state_dict()
+    
+    print("preprocessing pretrained state dict...")
+    preprocessed_dict = preprocess_state_dict(pretrained_dict)
+
+    # Lists to track issues
+    missing_keys = []
+    unexpected_keys = []
+    size_mismatched_keys = []
+
+    # Filter out mismatched weights
+    compatible_dict = {}
+    for k, v in preprocessed_dict.items():
+        if k in model_dict:
+            if model_dict[k].shape == v.shape:
+                compatible_dict[k] = v
+            else:
+                size_mismatched_keys.append((k, model_dict[k].shape, v.shape))
+        else:
+            unexpected_keys.append(k)
+
+    # Detect missing keys
+    missing_keys = [k for k in model_dict if k not in compatible_dict]
+
+    # Update model dictionary with compatible weights
+    model_dict.update(compatible_dict)
+    model.load_state_dict(model_dict)
+
+    # Log details of incompatible keys
+    log_incompatible_keys(missing_keys, unexpected_keys, size_mismatched_keys)
+    
+    return model
+
+def get_lora(model, cfg):
+
+    print("Wrapping model with pretrained LoRA adapter...")
+    adapter_config = PeftConfig.from_pretrained(cfg.sample.adapter_config_path)
+    adapter_model = PeftModel.from_pretrained(model, cfg.sample.adapter_model_path, config=adapter_config)
+    adapter_model.set_adapter("default")
+    
+    adapter_model.print_trainable_parameters()
+    
+    print("Freezing all layers...")
+    for name, param in model.named_parameters():
+        param.requires_grad = False
+
+    return adapter_model
 
 @torch.no_grad()
 def layout_to_image_generation(cfg, model_fn, noise_schedule, custom_layout_dict):
@@ -57,11 +135,11 @@ def layout_to_image_generation(cfg, model_fn, noise_schedule, custom_layout_dict
             obj_class = '__null__'
 
         model_kwargs['obj_bbox'][0][obj_id] = torch.FloatTensor(obj_bbox)
+        print(object_name_to_idx)
         model_kwargs['obj_class'][0][obj_id] = object_name_to_idx[obj_class]
         model_kwargs['is_valid_obj'][0][obj_id] = 1
 
     print(model_kwargs)
-
 
     wrappered_model_fn = model_wrapper(
         model_fn,
@@ -93,12 +171,31 @@ def layout_to_image_generation(cfg, model_fn, noise_schedule, custom_layout_dict
     # generate_img = np.transpose(generate_img, (1,0,2))
     print(generate_img.shape)
 
-
-
-
     print("sampling complete")
 
     return generate_img
+
+def compute_checksum(file_path, algorithm='sha256'):
+    hash_func = hashlib.new(algorithm)
+    with open(file_path, 'rb') as f:
+        while chunk := f.read(8192):
+            hash_func.update(chunk)
+    return hash_func.hexdigest()
+
+def load_checksum(checksum_file_path):
+    with open(checksum_file_path, 'r') as f:
+        return f.read().strip()
+
+def verify_checksum(file_path, checksum_file_path, algorithm='sha256'):
+    "Verifying checksum..."
+    saved_checksum = load_checksum(checksum_file_path)
+    computed_checksum = compute_checksum(file_path, algorithm)
+    if saved_checksum != computed_checksum:
+        raise ValueError(f"Checksum verification failed for {file_path}.\n"
+                         f"Saved: {saved_checksum}\n"
+                         f"Computed: {computed_checksum}")
+    else:
+        print(f"Checksum verification successful for {file_path}.")
 
 
 @torch.no_grad()
@@ -116,23 +213,41 @@ def init():
         cfg = OmegaConf.merge(cfg, unknown_args)
 
     print(OmegaConf.to_yaml(cfg))
+    
+    is_peft = cfg.sample.is_peft
 
     print("creating model...")
     model = build_model(cfg)
     model.cuda()
-    print(model)
 
     if cfg.sample.pretrained_model_path:
-        print("loading model from {}".format(cfg.sample.pretrained_model_path))
-        checkpoint = torch.load(cfg.sample.pretrained_model_path, map_location="cpu")
+        print("Loading model from {}".format(cfg.sample.pretrained_model_path))
+        checkpoint_path = cfg.sample.pretrained_model_path
+        
+        # Define the checksum path
+        checksum_path = checkpoint_path + ".checksum"
+        
+        # Verify the checksum before loading the model
+        try:
+            verify_checksum(checkpoint_path, checksum_path)
+        except ValueError as e:
+            print(e)
+            print("Aborting model load due to checksum mismatch.")
+            exit(1)
+
+        # Proceed to load the model
+        checkpoint = torch.load(checkpoint_path, map_location="cpu")
 
         try:
             model.load_state_dict(checkpoint, strict=True)
-            print('successfully load the entire model')
-        except:
-            print('not successfully load the entire model, try to load part of model')
-
-            model.load_state_dict(checkpoint, strict=False)
+            print('Successfully loaded the entire model')
+        except RuntimeError as e:
+            print('Not successfully loaded the entire model')
+            print('Trying to load part of the model...')
+            model = load_compatible_model(model, checkpoint_path)
+            
+    if is_peft:
+        model = get_lora(model, cfg)
 
     model.cuda()
     if cfg.sample.use_fp16:

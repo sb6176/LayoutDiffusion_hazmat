@@ -206,108 +206,74 @@ class ToTensor(object):
 
 
 class RandomSampleCrop(object):
-    """Crop
-    Arguments:
-        img (Image): the image being input during training
-        boxes (Tensor): the original bounding boxes in pt form
-        labels (Tensor): the class labels for each bbox
-        mode (float tuple): the min and max jaccard overlaps
-    Return:
-        (img, boxes, classes)
-            img (Image): the cropped image
-            boxes (Tensor): the adjusted bounding boxes in pt form
-            labels (Tensor): the class labels for each bbox
-    """
-
     def __init__(self):
         self.sample_options = [
-            # using entire original input image
             None,
-            # sample a patch s.t. MIN jaccard w/ obj in .1,.3,.4,.7,.9
             (0.1, None),
             (0.3, None),
             (0.7, None),
             (0.9, None),
-            # randomly sample a patch
             (None, None),
         ]
 
     def __call__(self, image, boxes=None, labels=None):
         height, width, _ = image.shape
-        while True:
-            # randomly choose a mode
-            mode = self.sample_options[random.choice([0,1,2,3,4,5])]
+        max_trials = 50  # Maximum number of trials
+
+        for trial in range(max_trials):
+            mode = self.sample_options[random.choice(range(len(self.sample_options)))]
             if mode is None:
-                return image, boxes, labels, [True for i in range(boxes.shape[0])]
+                return image, boxes, labels, [True] * len(boxes)
 
             min_iou, max_iou = mode
-            if min_iou is None:
-                min_iou = float('-inf')
-            if max_iou is None:
-                max_iou = float('inf')
+            min_iou = float('-inf') if min_iou is None else min_iou
+            max_iou = float('inf') if max_iou is None else max_iou
 
-            # max trails (50)
-            for _ in range(50):
-                current_image = image
+            current_image = image
 
-                w = random.uniform(0.3 * width, width)
-                h = random.uniform(0.3 * height, height)
+            w = random.uniform(0.3 * width, width)
+            h = random.uniform(0.3 * height, height)
 
-                # aspect ratio constraint b/t .5 & 2
-                if h / w < 0.5 or h / w > 2:
-                    continue
+            if h / w < 0.5 or h / w > 2:
+                continue
 
-                left = random.uniform(width - w)
-                top = random.uniform(height - h)
+            left = random.uniform(0, width - w)
+            top = random.uniform(0, height - h)
 
-                # convert to integer rect x1,y1,x2,y2
-                rect = np.array([int(left), int(top), int(left + w), int(top + h)])
+            rect = np.array([int(left), int(top), int(left + w), int(top + h)])
 
-                # calculate IoU (jaccard overlap) b/t the cropped and gt boxes
-                overlap = jaccard_numpy(boxes, rect)
+            overlap = jaccard_numpy(boxes, rect)
 
-                # is min and max overlap constraint satisfied? if not try again
-                if overlap.min() < min_iou and max_iou < overlap.max():
-                    continue
+            # Check if overlap array is empty before min/max operations
+            if overlap.size == 0:
+                continue
 
-                # cut the crop from the image
-                current_image = current_image[rect[1]:rect[3], rect[0]:rect[2],:]
+            # Only proceed if overlap array is non-empty
+            if overlap.min() < min_iou or overlap.max() > max_iou:
+                continue
 
-                # keep overlap with gt box IF center in sampled patch
-                centers = (boxes[:, :2] + boxes[:, 2:]) / 2.0
+            current_image = current_image[rect[1]:rect[3], rect[0]:rect[2], :]
 
-                # mask in all gt boxes that above and to the left of centers
-                m1 = (rect[0] < centers[:, 0]) * (rect[1] < centers[:, 1])
+            centers = (boxes[:, :2] + boxes[:, 2:]) / 2.0
+            m1 = (rect[0] < centers[:, 0]) & (rect[1] < centers[:, 1])
+            m2 = (rect[2] > centers[:, 0]) & (rect[3] > centers[:, 1])
+            mask = m1 & m2
 
-                # mask in all gt boxes that under and to the right of centers
-                m2 = (rect[2] > centers[:, 0]) * (rect[3] > centers[:, 1])
+            if not mask.any():
+                continue
 
-                # mask in that both m1 and m2 are true
-                mask = m1 * m2
+            current_boxes = boxes[mask, :].copy()
+            current_labels = labels[mask]
 
-                # have any valid boxes? try again if not
-                if not mask.any():
-                    continue
+            current_boxes[:, :2] = np.maximum(current_boxes[:, :2], rect[:2])
+            current_boxes[:, :2] -= rect[:2]
+            current_boxes[:, 2:] = np.minimum(current_boxes[:, 2:], rect[2:])
+            current_boxes[:, 2:] -= rect[:2]
 
-                # take only matching gt boxes
-                current_boxes = boxes[mask, :].copy()
+            return current_image, current_boxes, current_labels, mask
 
-                # take only matching gt labels
-                current_labels = labels[mask]
-
-                # should we use the box left and top corner or the crop's
-                current_boxes[:, :2] = np.maximum(current_boxes[:, :2],
-                                                  rect[:2])
-                # adjust to crop (by substracting crop's left,top)
-                current_boxes[:, :2] -= rect[:2]
-
-                current_boxes[:, 2:] = np.minimum(current_boxes[:, 2:],
-                                                  rect[2:])
-                # adjust to crop (by substracting crop's left,top)
-                current_boxes[:, 2:] -= rect[:2]
-
-                return current_image, current_boxes, current_labels, mask
-
+        # If no valid crop is found after max trials, return the original image and bounding boxes
+        return image, boxes, labels, [True] * len(boxes)  
 
 class Expand(object):
     def __init__(self, mean):
@@ -406,6 +372,11 @@ class SSDAugmentation(object):
             ToAbsoluteCoords(),
             PhotometricDistort(),
             Expand(self.mean),
+            # The code you provided is a comment in Python. Comments in Python start with a hash
+            # symbol (#) and are used to provide explanations or notes within the code. In this case,
+            # the comment says "RandomSample", which suggests that the code may be related to randomly
+            # sampling data or generating random samples. However, without seeing the actual code or
+            # context, it is not possible to determine the exact functionality of the code.
             RandomSampleCrop(),
             RandomMirror(),
             ToPercentCoords(),
